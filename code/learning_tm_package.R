@@ -61,6 +61,7 @@ writeLines(as.character(stemDocument[[1]]))
 
 dtm <- DocumentTermMatrix(reuters4)
 inspect(dtm[5:10, 740:743])
+inspect(dtm[1:5],)
 findFreqTerms(dtm, 5) #terms that appear at least 5 times
 
 findAssocs(dtm, "opec", 0.8) #terms correlated with "opec"
@@ -76,3 +77,5 @@ scan_tokenizer(crude[[1]])
 strsplit_space_tokenizer <- function(x)
   unlist(strsplit(as.character(x), "[[:space:]]+"))
 strsplit_space_tokenizer(crude[[1]])
+library(tau)
+tokenize(x)
