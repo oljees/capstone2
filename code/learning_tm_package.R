@@ -64,3 +64,15 @@ inspect(dtm[5:10, 740:743])
 findFreqTerms(dtm, 5) #terms that appear at least 5 times
 
 findAssocs(dtm, "opec", 0.8) #terms correlated with "opec"
+
+#Learning tokenization
+
+data("crude")
+inspect(crude)
+meta(crude[[1]])
+crude[[1]]$content
+crude_tok1<-MC_tokenizer(crude[[1]])
+scan_tokenizer(crude[[1]])
+strsplit_space_tokenizer <- function(x)
+  unlist(strsplit(as.character(x), "[[:space:]]+"))
+strsplit_space_tokenizer(crude[[1]])
