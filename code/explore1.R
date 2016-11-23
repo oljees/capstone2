@@ -58,3 +58,12 @@ grep("A computer once beat me at chess, but it was no match for me at kickboxing
 
 #delete this line
 
+#########
+#alternative read sample
+setwd("./final/en_US")
+list.files()
+
+con<-file("en_US.blogs.txt","r")
+length(readLines(con))
+blogs<-readLines(con,10)
+close(con)
