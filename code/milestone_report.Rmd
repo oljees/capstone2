@@ -1,0 +1,290 @@
+---
+title: "DSS Coursera Milestone report 1"
+author: "J Engmann"
+date: "26 November 2016"
+output: html_document
+---
+
+```{r global_options, include=FALSE,warning=FALSE,message=FALSE}
+library(tm)
+library(dplyr)
+library(ggplot2)
+library(SnowballC)
+```
+
+## Project aims
+
+The overall aim of this capstone project is to build an application using R that can predict the "next" word using a combination of previous words entered.  The data used is the English (US) subset from a corpus called [HC Corpora](www.corpora.heliohost.org) consisting of a collection of news articles, blogs and tweets.
+
+This report
+
+* summarizes the size and contents of a random sample from the dataset
+* summarizes how data are cleaned and data quality
+* looks at some of the features within the dataset (most common words)
+* presents plans for generating prediction algorithm and app
+
+## Loading data
+
+The three files used were
+
+*  en_US.blogs.txt   
+*  en_US.news.txt    
+*  en_US.twitter.txt
+
+A random 5% sample of each file was taken and saved to disc as file sizes were large.
+Example script for news file below.
+
+```{r sampling, include=TRUE,warning=FALSE,message=FALSE,results=FALSE, eval=FALSE,cache=TRUE}
+set.seed(12321)
+## Take 5% of each corpus as sample (without replacement) ##
+con <- file(description = "./final/en_US/en_US.news.txt", encoding = "UTF-8")
+news <- sample(x  = readLines(con = con), size = 0.05*length(readLines(con = con)), replace = FALSE)
+close(con)
+
+#save to disc for later
+if (!dir.exists("./final/en_US/samples/")){
+  dir.create("./final/en_US/samples/")
+}
+
+con<-file(description = "./final/en_US/samples/en_US.news.txt")
+writeLines(news,con)
+close(con)
+```
+
+Using the tm package, sample data can be loaded and inspected.
+```{r load, echo=FALSE,cache=TRUE}
+docs<-VCorpus((DirSource("../final/en_US/samples")))
+#inspect(docs)
+#lapply(docs,meta)
+```
+
+###Number of lines in each file  
+Number of lines in en_US.blogs.txt: `r length(docs[[1]]$content)`  
+Number of lines in en_US.news.txt `r length(docs[[2]]$content)`  
+Number of lines in en_US.twitter.txt `r length(docs[[3]]$content)`  
+
+## Data cleaning
+
+A range of cleaning was performed to remove punctuation, numbers and various other non-alpha numeric characters that I don't want to predict.  All characters were converted to lowercase, swear words listed in website [bannedwordlist]("http://www.bannedwordlist.com/") were removed, and words with characters repeating more than 3 time (such as folllow) were trimmed down (to follow).  
+I did not want to remove stop words, stem or lemmatise as I think the prediction algorithim in this case should predict based on the writing style of the data authors for it to be more usefull.
+
+```{r cleaning,warning=FALSE,cache=TRUE}
+#this can be used to convert certain characters to spaces
+#note it is wrapped in the content transformer function
+toSpace <- content_transformer(
+  function(x, pattern) {
+    return (gsub(pattern, " ", x))
+  }
+)
+
+docs <- tm_map(docs, removePunctuation)
+docs <- tm_map(docs, toSpace, "…") 
+docs <- tm_map(docs, toSpace, "–") 
+docs <- tm_map(docs, toSpace, "-") 
+docs <- tm_map(docs, toSpace, ":") 
+docs <- tm_map(docs, toSpace, "'") 
+docs <- tm_map(docs, toSpace, "'") 
+docs <- tm_map(docs, toSpace, " -")
+docs<- tm_map(docs,toSpace,"”")
+docs<- tm_map(docs,toSpace,"‘") #doesn't work
+docs<- tm_map(docs,toSpace,"’")
+docs<- tm_map(docs,toSpace,"’")
+docs<- tm_map(docs,toSpace,"–")
+
+remove_rpt <- content_transformer(
+  function(x, pattern) {
+    return (gsub('([[:alpha:]])\\1+', '\\1\\1', x))
+  }
+)
+
+docs<-tm_map(docs,remove_rpt)
+
+#Transform to lower case (need to wrap in content_transformer)
+docs <- tm_map(docs,content_transformer(tolower))
+
+#Strip digits (std transformation, so no need for content_transformer)
+docs <- tm_map(docs, removeNumbers)
+
+#remove profanity words
+# from http://www.bannedwordlist.com/
+# download.file("http://www.bannedwordlist.com/",
+#               "swearWords.csv", method = "curl")
+profanity<-read.csv("../swearWords.csv",stringsAsFactors = F,header = F)
+profanity<-as.character(profanity)
+
+docs <- tm_map(docs, removeWords, profanity)
+
+#remove special characters
+removeSpecialChars <- content_transformer(
+  function(x, pattern) {
+    return (gsub("[^a-zA-Z0-9 ]","",x))
+  }
+)
+docs<-tm_map(docs,removeSpecialChars)
+
+#Strip whitespace (cosmetic?)
+docs <- tm_map(docs, stripWhitespace)
+
+#treat corpus as text document
+#docs_bu<-docs
+#docs <- tm_map(docs, PlainTextDocument) 
+
+#getwd()
+```
+
+## Exploration of features in data
+
+Data is converted to a DocumentTermMatrix for further exploration of the content.  
+
+```{r exploration, echo=FALSE,cache=TRUE}
+dtm <- DocumentTermMatrix(docs)
+#dim(dtm)
+
+freq <- colSums(as.matrix(dtm))
+doc_n<-as.data.frame(rowSums(as.matrix(dtm)))
+names(doc_n)<-"n-terms"
+#length(freq)
+
+#create sort order (descending)
+ord <- order(freq,decreasing=TRUE)
+#inspect most frequently occurring terms
+#freq[head(ord,20)]
+
+#inspect least frequently occurring terms
+#freq[tail(ord,20)]
+
+#check per doc
+#blogs
+freq_blogs <- colSums(as.matrix(dtm[1,]))
+#length(freq_blogs)
+ord_blogs <- order(freq_blogs,decreasing=TRUE)
+top_blogs<-as.data.frame(freq_blogs[head(ord_blogs,20)])
+names(top_blogs)<-"count"
+
+#news
+freq_news <- colSums(as.matrix(dtm[2,]))
+#length(freq_news)
+ord_news <- order(freq_news,decreasing=TRUE)
+#freq_news[head(ord_news,20)]
+top_news<-as.data.frame(freq_news[head(ord_news,20)])
+names(top_news)<-"count"
+
+#twitter
+freq_twitter <- colSums(as.matrix(dtm[3,]))
+#length(freq_twitter)
+ord_twitter <- order(freq_twitter,decreasing=TRUE)
+#freq_twitter[head(ord_twitter,20)]
+top_twitter<-as.data.frame(freq_twitter[head(ord_twitter,20)])
+names(top_twitter)<-"count"
+
+```
+
+The three documents in this matrix have a total of `r length(freq)`  terms.  
+The top terms occuring over 10,000 times in all documents are shown below.  
+As can be immediately seen the most common in each document are stop words, which are still valid targets for prediction, hence remain in the sample.  
+
+```{r distros,echo=FALSE,cache=TRUE }
+wf=data.frame(term=names(freq),occurrences=freq)
+library(ggplot2)
+#plot for words with count>100
+#do a barchart
+p <- ggplot(subset(wf, freq>10000), aes(reorder(term,-occurrences), occurrences))
+p <- p + geom_bar(stat="identity")
+p <- p + theme(axis.text.x=element_text(angle=45, hjust=1))+
+  ggtitle("Terms occuring >10000 times in all docs")+
+  xlab("Terms")
+p
+
+ggplot(top_blogs,aes(reorder(row.names(top_blogs),-count),count))+
+  geom_bar(stat="identity")+
+  ggtitle("Top 20 terms in blogs")+
+  xlab("Terms")
+
+ggplot(top_news,aes(reorder(row.names(top_news),-count),count))+
+  geom_bar(stat="identity")+
+  ggtitle("Top 20 terms in news")+
+  xlab("Terms")
+
+ggplot(top_twitter,aes(reorder(row.names(top_twitter),-count),count))+
+  geom_bar(stat="identity")+
+  ggtitle("Top 20 terms in twitter")+
+  xlab("Terms")
+```
+
+
+##Looking at ngrams in data
+RWeka NGramTokeniser was used to create bi-gram and tri-grams for exploratory purposes.
+The top 20 bi-gram and tri-grams are displayed below.
+
+```{r ngrams}
+library("RWeka")
+library("tm")
+
+#create bigram function
+BigramTokenizer <- function(x) NGramTokenizer(x, Weka_control(min = 2, max = 2))
+
+bigram_dtm<- DocumentTermMatrix(docs, control = list(tokenize = BigramTokenizer))
+#dim(bigram_dtm)
+#inspect(bigram_dtm[1:3,150000:150010])
+
+freq_bigram <- colSums(as.matrix(bigram_dtm))
+doc_n_bigram<-as.data.frame(rowSums(as.matrix(bigram_dtm)))
+names(doc_n_bigram)<-"n-bigrams"
+#length(freq_bigram)
+
+#create sort order (descending)
+ord_bigram <- order(freq_bigram,decreasing=TRUE)
+#inspect most frequently occurring terms
+#freq_bigram[head(ord_bigram,20)]
+
+top_bigrams<-as.data.frame(freq_bigram[head(ord_bigram,20)])
+names(top_bigrams)<-"count"
+#plot common bigrams
+ggplot(top_bigrams,aes(reorder(row.names(top_bigrams),-count),count))+
+  geom_bar(stat="identity")+
+  ggtitle("Top 20 bigrams in data")+
+  xlab("bi-grams")+
+  theme(axis.text.x=element_text(angle=45, hjust=1))
+
+#-------
+#create trigram function
+TrigramTokenizer <- function(x) NGramTokenizer(x, Weka_control(min = 3, max = 3))
+
+trigram_dtm<- DocumentTermMatrix(docs, control = list(tokenize = TrigramTokenizer))
+#dim(trigram_dtm)
+#inspect(trigram_dtm[1:3,150000:150010])
+
+freq_trigram <- colSums(as.matrix(trigram_dtm))
+doc_n_trigram<-as.data.frame(rowSums(as.matrix(trigram_dtm)))
+names(doc_n_trigram)<-"n-trigrams"
+#length(freq_trigram)
+
+#create sort order (descending)
+ord_trigram <- order(freq_trigram,decreasing=TRUE)
+#inspect most frequently occurring terms
+#freq_trigram[head(ord_trigram,20)]
+
+top_trigrams<-as.data.frame(freq_trigram[head(ord_trigram,20)])
+names(top_trigrams)<-"count"
+#plot common bigrams
+ggplot(top_trigrams,aes(reorder(row.names(top_trigrams),-count),count))+
+  geom_bar(stat="identity")+
+  ggtitle("Top 20 trigrams in data")+
+  xlab("tri-grams")+
+  theme(axis.text.x=element_text(angle=45, hjust=1))
+```
+
+##To do and comments
+
+*  There are quite a few non-words (like "aaaaaah", "aaaaaaaaaaah").  I managed to sort some of them out by removing repeated characters and replacing with a single or double occurance (this sorted out some typos too, such as "tomorrrow" to "tomorrow").  There were many other typos that idealy should be condensed to the right word.  At this stage I'm not sure if stemming would work for the purpose of this project as many stemmed words are not words that would appear in natural language, making the prediction application pretty useless.  My solution is not the most elegant but reduces the mount of non-words considerably
+
+*  My punctuation removal was probably overkill, and has left some hyphenated words wrong, and some words with apostrophies (don't) also wrong.  It would take way too long to figure out a solution to this.
+
+*  This leads to a point on how tight my cleaning for the model should be.  Naturally one would expect the kind of language used on twitter to be different from that on a news site for example.  Where it would be perfectly acceptable for an algorithm to predict "yessssss" to emphasize emotion on twitter, such language would not be expected in a news article.  This is a whole new question to consider, and must include the target audience writing style.
+
+* The swear word removal could probably be a bit more extensive.  Again, this is a dynamic part of the algorithm since new swearwords pop up regularly and what is offensive to one population is not to another.
+
+*  Next I will do further exploration of larger n-grams and learn how to apply them to some sort of probability model.  I've seen mention of some Markov sort models but they are still hidden from me at the moment.  
+
+
+
